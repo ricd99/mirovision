@@ -3,4 +3,6 @@
 .RData
 .Ruserdata
 
+# secrets
 .env
+analysis/.cache
