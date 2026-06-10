@@ -26,5 +26,4 @@ SELECT
     co.country_name,
     co.region
 FROM first_appearance f
-INNER JOIN countries co ON f.country = co.country
-ORDER BY stan_country;
+INNER JOIN countries co ON f.country = co.country;
