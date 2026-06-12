@@ -13,10 +13,12 @@ This Quarto document conducts the analyses and generates the plots for Burgoyne,
 #| label: setup
 library(tidyverse)
 library(fs)
-library(tikzDevice)
+# library(tikzDevice)
 library(cmdstanr)
-library(extrafont)
-setTikzDefaults()
+# library(extrafont)
+library(DBI)
+library(RPostgres)
+# setTikzDefaults()
 options(
   mc.cores = parallel::detectCores(),
   tikzDefaultEngine = "luatex",
@@ -44,178 +46,28 @@ options(
 ```
 
 ## Load data
-
-The raw data is in RDA format, with the eventual goal of making an R package.
-
 ```{r}
-bookmakers <- readRDS("data/bookmakers.rda")
-countries <- readRDS("data/countries.rda")
-contestants <- readRDS("data/contestants.rda")
-votes <- readRDS("data/votes.rda")
-jurors <- readRDS("data/jurors.rda")
-```
+con <- dbConnect(
+  RPostgres::Postgres(),
+  host="localhost",
+  port=5432,
+  dbname="eurovision",
+  user="ryan",
+  password="ryan"
+)
 
-We normalise the data and add integer primary keys for Stan, using order of appearance where possible, but we do not use them as the standard foreign key in other tables.
-In order to simplify the data representation, we also restrict the contests to 1975 and later, for which there is a common scoring format.
-In order to support earlier years, there would need to be an extra table combining years and valid scores, and only long-format point tables would be possible.
+# raw tables 
+bookmakers <- dbGetQuery(con, "SELECT * FROM bookmakers")
+countries <- dbGetQuery(con, "SELECT * FROM countries")
+jurors <- dbGetQuery(con, "SELECT * FROM jurors")
+# stan-ready tables
+stan_countries <- dbGetQuery(con, "SELECT * FROM stan_countries")
+stan_contestants <- dbGetQuery(con, "SELECT * FROM stan_contestants")
+stan_shows <- dbGetQuery(con, "SELECT * FROM stan_shows")
+stan_points <- dbGetQuery(con, "SELECT * FROM stan_points")
+stan_ballots <- dbGetQuery(con, "SELECT * FROM stan_ballots")
 
-```{r}
-stan_countries <-
-  contestants |>
-  mutate(
-    across(
-      c(semifinal_number, semifinal_running_order, final_running_order),
-      \(v) replace_na(v, .Machine$integer.max)
-    ),
-    contestant =
-      dense_rank(
-        pick(
-          year,
-          semifinal_number,
-          semifinal_running_order,
-          final_running_order
-        )
-      )
-  ) |>
-  group_by(country) |>
-  summarise(first_contestant = min(contestant)) |>
-  mutate(stan_country = dense_rank(first_contestant), .before = 1) |>
-  select(-first_contestant) |>
-  inner_join(countries, by = "country") |>
-  arrange(stan_country)
-
-stan_contestants <-
-  contestants |>
-  filter(year >= 1975L, year != 2020L) |>
-  mutate(
-    across(
-      c(semifinal_number, semifinal_running_order, final_running_order),
-      \(v) replace_na(v, .Machine$integer.max)
-    ),
-    stan_contestant =
-      dense_rank(
-        pick(
-          year,
-          semifinal_number,
-          semifinal_running_order,
-          final_running_order
-        )
-      ),
-    .before = 1
-  ) |>
-  select(
-    stan_contestant,
-    year,
-    country,
-    artist = performer,
-    title = song,
-    composers,
-    lyricists,
-    lyrics,
-    youtube_url
-  ) |>
-  arrange(stan_contestant)
-
-stan_shows <-
-  votes |>
-  filter(year >= 1975L) |>
-  distinct(year, round) |>
-  mutate(
-    round =
-      fct_relevel(
-        round,
-        "semi-final",
-        "semi-final-1",
-        "semi-final-2",
-        "final"
-      )
-  ) |>
-  mutate(stan_show = dense_rank(pick(year, round)), .before = 1) |>
-  arrange(stan_show)
-
-stan_performances <-
-  contestants |>
-  filter(year >= 1975L, year != 2020L) |>
-  select(
-    year,
-    country,
-    semifinal_number,
-    semifinal_running_order,
-    final_running_order
-  ) |>
-  pivot_longer(
-    semifinal_running_order:final_running_order,
-    names_to = "type",
-    names_pattern = "(.*)_running_order",
-    values_to = "running_order"
-  ) |>
-  filter(!is.na(running_order)) |>
-  mutate(
-    round =
-      factor(
-        case_when(
-          type == "semifinal" & semifinal_number == 0L ~ "semi-final",
-          type == "semifinal" & semifinal_number == 1L ~ "semi-final-1",
-          type == "semifinal" & semifinal_number == 2L ~ "semi-final-2",
-          type == "final" ~ "final"
-        ),
-        levels = c("semi-final", "semi-final-1", "semi-final-2", "final")
-      )
-  ) |>
-  mutate(stan_performance = dense_rank(pick(year, round, running_order))) |>
-  arrange(stan_performance)
-
-stan_points <-
-  votes |>
-  filter(year >= 1975) |>
-  mutate(total_points = ifelse(is.na(jury_points), total_points, NA)) |>
-  rename_at(vars(total_points:jury_points), str_remove, "_points") |>
-  pivot_longer(
-    total:jury,
-    names_to = "type",
-    values_to = "points",
-    values_drop_na = TRUE
-  ) |>
-  mutate(
-    round =
-      fct_relevel(round, "semi-final", "semi-final-1", "semi-final-2", "final")
-  ) |>
-  inner_join(
-    stan_countries |> 
-      select(stan_from_country = stan_country, from_country = country)
-  ) |> 
-  inner_join(
-    stan_countries |> 
-      select(stan_to_country = stan_country, to_country = country)
-  ) |> 
-  inner_join(stan_shows) |> 
-  inner_join(
-    stan_contestants |> select(stan_contestant, year, to_country = country)
-  ) |> 
-  mutate(
-    stan_ballot = dense_rank(pick(year, round, type, stan_from_country))
-  ) |> 
-  select(
-    stan_ballot, stan_show, year, round, stan_from_country, from_country, type,
-    stan_contestant, stan_to_country, to_country,
-    points
-  ) |>
-  arrange(stan_ballot, desc(points))
-
-stan_ballots <-
-  stan_points |>
-  group_by(
-    stan_ballot,
-    stan_show, year, round,
-    stan_from_country, from_country,
-    type
-  ) |>
-  summarise(
-    n_alternatives = n(),
-    n_ranked = sum(points > 0)
-  ) |>
-  ungroup() |>
-  arrange(stan_ballot)
+dbDisconnect(con)
 ```
 
 ## Analyse previous contests
