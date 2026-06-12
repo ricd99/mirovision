@@ -122,8 +122,22 @@ stan_points |>
   print(n = Inf)
 ```
 
-### Rasch model
+# fixing datatypes caused by postgres
+```{r}
+stan_countries <- stan_countries |> mutate(stan_country = as.integer(stan_country))
+stan_contestants <- stan_contestants |> mutate(stan_contestant = as.integer(stan_contestant))
+stan_points <- stan_points |> 
+  mutate(
+    stan_ballot = as.integer(stan_ballot),
+    stan_show = as.integer(stan_show),
+    stan_from_country = as.integer(stan_from_country),
+    stan_to_country = as.integer(stan_to_country),
+    stan_contestant = as.integer(stan_contestant)
+  )
+stan_shows <- stan_shows |> mutate(stan_show = as.integer(stan_show))
+```
 
+### Rasch model
 ```{r}
 contest_model <-
   cmdstan_model(
