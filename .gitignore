@@ -6,3 +6,8 @@
 # secrets
 .env
 analysis/.cache
+.vscode
+
+#data?
+*.rds
+
