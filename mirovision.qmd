@@ -50,10 +50,10 @@ options(
 con <- dbConnect(
   RPostgres::Postgres(),
   host="localhost",
-  port=5432,
-  dbname="eurovision",
-  user="ryan",
-  password="ryan"
+  port=5433,
+  dbname="postgres",
+  user="postgres",
+  password="testpass123"
 )
 
 # raw tables 
@@ -164,12 +164,13 @@ if (file_exists("stan/contest-fit.rds")) {
           nn = stan_points |> pull(stan_contestant),
           xx = stan_points |> pull(points)
         ),
-      chains = 4,
-      parallel_chains = 4,
-      threads_per_chain = 2,
-      iter_warmup = 1000,
-      iter_sampling = 1000,
-      refresh = 100
+      # reduced numbers so i can run in reasonable time
+      chains = 2,
+      parallel_chains = 2,
+      threads_per_chain = 1,
+      iter_warmup = 500,
+      iter_sampling = 500,
+      refresh = 1
     )
   contest_fit$save_object("stan/contest-fit.rds")
 }
