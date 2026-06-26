@@ -8,6 +8,3 @@
 analysis/.cache
 .vscode
 
-#data?
-*.rds
-
