@@ -26,6 +26,15 @@ stan_contestants <- stan_contestants |>
 stan_countries <- stan_countries |>
     mutate(stan_country = as.integer(stan_country))   
 
+# replace country (two letter code) with country_name (full name) in stan_contestants
+stan_contestants <- stan_contestants |>
+  left_join(
+    stan_countries |> select(country, country_name),  
+    by = "country"
+  ) |>
+  select(-country) |>
+  rename(country = country_name)             
+
 # ── Step 3: Extract and convert beta_contestant to cantobels ─────────────────
 beta_summary <- contest_fit$summary("beta_contestant") |>
     mutate(
